@@ -1,0 +1,71 @@
+#!/bin/bash
+
+# Check if at least 3 arguments are provided
+if [[ $# -lt 3 ]]; then
+    echo "Usage: $0 {mode} {username} {db_name} {password} [optional_sql_file_path]"
+    echo "Modes:"
+    echo "  create-and-restore: Create user and database, then optionally restore from SQL file"
+    echo "  restore-only: Restore database only (user and database must already exist)"
+    echo "Example:"
+    echo "  $0 create myuser mydb mypass /path/to/file.sql"
+    echo "  $0 restore myuser mydb mypass /path/to/file.sql"
+    exit 1
+fi
+
+# Read mode and other input arguments
+MODE=$1
+USERNAME=$2
+DB_NAME=$3
+PASSWORD=$4
+SQL_FILE=$5
+
+# Check if the user is root (sudo mysql)
+if ! sudo -v &>/dev/null; then
+    echo "This script requires root privileges to interact with MySQL."
+    exit 1
+fi
+
+if [[ "$MODE" == "create" ]]; then
+    # Create the user
+    echo "Creating user '${USERNAME}' with password..."
+    sudo mysql -e "CREATE USER '${USERNAME}'@'localhost' IDENTIFIED BY '${PASSWORD}';"
+    echo "User '${USERNAME}' created."
+
+    # Create the database
+    echo "Creating database '${DB_NAME}'..."
+    sudo mysql -e "CREATE DATABASE ${DB_NAME};"
+    echo "Database '${DB_NAME}' created."
+
+    # Grant privileges
+    echo "Granting privileges on database '${DB_NAME}' to user '${USERNAME}'..."
+    sudo mysql -e "GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${USERNAME}'@'localhost';"
+    echo "Privileges granted."
+elif [[ "$MODE" == "restore" ]]; then
+    echo "Skipping user and database creation. Proceeding to restore..."
+else
+    echo "Invalid mode: $MODE"
+    exit 1
+fi
+
+# Check if an SQL file is provided
+if [[ -n "$SQL_FILE" ]]; then
+    if [[ -f "$SQL_FILE" ]]; then
+        # Restore the database
+        echo "Restoring database '${DB_NAME}' from SQL file '${SQL_FILE}'..."
+        sudo mysql "${DB_NAME}" < "$SQL_FILE"
+        if [[ $? -eq 0 ]]; then
+            echo "Database '${DB_NAME}' restored from '${SQL_FILE}'."
+        else
+            echo "Error: Database restoration failed."
+            exit 1
+        fi
+    else
+        echo "Error: SQL file '${SQL_FILE}' does not exist."
+        exit 1
+    fi
+else
+    echo "No SQL file provided. Skipping restore step."
+fi
+
+echo "Operation complete!"
+

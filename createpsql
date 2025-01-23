@@ -1,0 +1,85 @@
+#!/bin/bash
+
+# Check if at least 2 arguments are provided
+if [[ $# -lt 2 ]]; then
+    echo "Usage: $0 {mode} {username} {db_name} {password} [optional_sql_file_path]"
+    echo "Modes:"
+    echo "  create-and-restore: Create user and database, then optionally restore from SQL file"
+    echo "  restore-only: Restore database only (user and database must already exist)"
+    echo "Example:"
+    echo "  $0 create myuser mydb mypass /path/to/file.sql"
+    echo "  $0 restore myuser mydb mypass /path/to/file.sql"
+    exit 1
+fi
+
+# Read mode and other input arguments
+MODE=$1
+USERNAME=$2
+DB_NAME=$3
+PASSWORD=$4
+SQL_FILE=$5
+
+# Prompt for postgres password once
+read -s -p "Enter postgres password: " POSTGRES_PASSWORD
+echo
+
+# Export the PGPASSWORD environment variable for postgres user
+export PGPASSWORD=$POSTGRES_PASSWORD
+
+if [[ "$MODE" == "create" ]]; then
+    # Create the user
+    echo "Creating user '${USERNAME}' with password..."
+    psql -h 127.0.0.1 -U postgres -c "CREATE USER ${USERNAME} WITH PASSWORD '${PASSWORD}';"
+    echo "User '${USERNAME}' created."
+
+    # Create the database
+    echo "Creating database '${DB_NAME}'..."
+    psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE ${DB_NAME};"
+    echo "Database '${DB_NAME}' created."
+
+    # Grant privileges
+    echo "Granting privileges on database '${DB_NAME}' to user '${USERNAME}'..."
+    psql -h 127.0.0.1 -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${USERNAME};"
+    echo "Privileges granted."
+elif [[ "$MODE" == "restore" ]]; then
+    echo "Skipping user and database creation. Proceeding to restore..."
+else
+    echo "Invalid mode: $MODE"
+    exit 1
+fi
+
+# Check if an SQL file is provided
+if [[ -n "$SQL_FILE" ]]; then
+    if [[ -f "$SQL_FILE" ]]; then
+        # Temporarily grant SUPERUSER role
+        echo "Granting SUPERUSER role to user '${USERNAME}' for restoration..."
+        psql -h 127.0.0.1 -U postgres -c "ALTER ROLE ${USERNAME} WITH SUPERUSER;"
+        
+        # Restore the database
+        echo "Restoring database '${DB_NAME}' from SQL file '${SQL_FILE}'..."
+        PGPASSWORD=${PASSWORD} psql -h 127.0.0.1 -U "${USERNAME}" -d "${DB_NAME}" -f "${SQL_FILE}"
+        if [[ $? -eq 0 ]]; then
+            echo "Database '${DB_NAME}' restored from '${SQL_FILE}'."
+        else
+            echo "Error: Database restoration failed."
+            # Revoke SUPERUSER even if restoration fails
+            psql -h 127.0.0.1 -U postgres -c "ALTER ROLE ${USERNAME} WITH NOSUPERUSER;"
+            exit 1
+        fi
+
+        # Revoke SUPERUSER role
+        echo "Revoking SUPERUSER role from user '${USERNAME}'..."
+        psql -h 127.0.0.1 -U postgres -c "ALTER ROLE ${USERNAME} WITH NOSUPERUSER;"
+    else
+        echo "Error: SQL file '${SQL_FILE}' does not exist."
+        exit 1
+    fi
+else
+    echo "No SQL file provided. Skipping restore step."
+fi
+
+# Unset the password for security
+unset PGPASSWORD
+
+echo "Operation complete!"
+
