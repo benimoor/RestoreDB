@@ -1,4 +1,4 @@
-# RestoreDB# Database Restore Scripts
+# Database Restore Scripts
 
 These bash scripts simplify the process of restoring databases in MySQL and PostgreSQL. They support creating users and databases, granting necessary privileges, and restoring from SQL files.
 
